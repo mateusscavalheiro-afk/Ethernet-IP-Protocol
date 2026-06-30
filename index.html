@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EtherNet/IP: Convergência TI/TA na Prática</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* BASE & TEMA */
+        :root {
+            --bg-dark: #0f1522;
+            --panel-bg: #1a2235;
+            --border: #2a3754;
+            --text-main: #e2e8f0;
+            --text-muted: #8b9bb4;
+            --tcp-blue: #3b82f6; /* Explícito */
+            --udp-green: #10b981; /* Implícito */
+            --dlr-orange: #f59e0b; /* Anel DLR */
+            --layer-bg: rgba(26, 34, 53, 0.4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Modificado para o sticky funcionar e não cortar o topo */
+            min-height: 100vh;
+            padding: 40px 20px; /* Espaço para respirar ao rolar */
+        }
+
+        /* LAYOUT PRINCIPAL - DASHBOARD */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 800px 400px;
+            gap: 20px;
+            max-width: 1220px;
+            width: 100%;
+            align-items: start; /* Essencial para o painel lateral poder ser 'sticky' */
+        }
+
+        /* SEÇÃO DO DIAGRAMA (ESQUERDA) */
+        .diagram-section {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            position: relative;
+            height: 750px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* FUNDO: CAMADAS OSI & PURDUE */
+        .layer-band {
+            position: absolute;
+            width: 100%;
+            border-bottom: 1px dashed var(--border);
+            padding: 10px 15px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            background: var(--layer-bg);
+            z-index: 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        .band-ti { top: 0; height: 180px; }
+        .band-control { top: 180px; height: 320px; }
+        .band-field { top: 500px; height: 250px; border-bottom: none; }
+        
+        .layer-badge {
+            background: rgba(0,0,0,0.3);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        /* SVG PARA CABOS E ANIMAÇÕES */
+        .cables-svg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .cable-tcp { stroke: var(--tcp-blue); stroke-width: 3; fill: none; stroke-dasharray: 6 20; animation: flow 2s linear infinite; filter: drop-shadow(0 0 5px var(--tcp-blue)); }
+        .cable-udp { stroke: var(--udp-green); stroke-width: 4; fill: none; stroke-dasharray: 12 25; animation: flow 0.8s linear infinite; filter: drop-shadow(0 0 6px var(--udp-green)); }
+        .cable-dlr { stroke: var(--dlr-orange); stroke-width: 5; fill: none; stroke-dasharray: 20 40; animation: flowRev 1.5s linear infinite; filter: drop-shadow(0 0 8px var(--dlr-orange)); }
+        .cable-static { stroke: #334155; stroke-width: 2; fill: none; }
+
+        @keyframes flow { to { stroke-dashoffset: -100; } }
+        @keyframes flowRev { to { stroke-dashoffset: 100; } }
+
+        /* NÓS / EQUIPAMENTOS (CUSTOM SVGS) */
+        .node {
+            position: absolute;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            transition: transform 0.2s;
+        }
+        .node:hover { transform: translate(-50%, -55%); }
+        .node-label {
+            margin-top: 8px;
+            background: var(--panel-bg);
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            white-space: nowrap;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        /* Renderização Customizada dos Equipamentos */
+        .svg-icon { width: 70px; height: 70px; filter: drop-shadow(0 5px 10px rgba(0,0,0,0.5)); }
+        .svg-icon-large { width: 100px; height: 100px; }
+
+        /* SEÇÃO DE INFORMAÇÕES (DIREITA) - AGORA COM STICKY */
+        .info-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            position: sticky; /* Magia aplicada aqui */
+            top: 40px; /* Mantém uma margem do topo da tela ao rolar */
+        }
+
+        .info-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .info-card h3 { font-size: 1.1rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        .info-card p { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 10px; }
+        
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
+        .bg-tcp { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }
+        .bg-udp { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .bg-dlr { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+
+        /* PAINEL DINÂMICO DE HOVER */
+        #dynamic-panel {
+            border-color: var(--tcp-blue);
+            background: linear-gradient(145deg, var(--panel-bg) 0%, rgba(59, 130, 246, 0.05) 100%);
+            min-height: 280px;
+        }
+        #dp-title { color: #fff; font-size: 1.3rem; margin-bottom: 5px; border: none; padding: 0; }
+        #dp-osi { color: var(--tcp-blue); font-weight: bold; font-size: 0.8rem; margin-bottom: 15px; display: block; }
+        
+        .dp-row { margin-bottom: 15px; }
+        .dp-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .dp-value { font-size: 0.9rem; color: var(--text-main); }
+
+        /* BOTÃO DE TOGGLE PARA INFORMAÇÕES EXTRAS */
+        .toggle-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px dashed var(--border);
+            padding: 12px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s;
+            width: 100%;
+        }
+        
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            border-color: var(--text-muted);
+        }
+
+        /* CONTEINER DE CONCEITOS OCULTOS */
+        .extra-info-container {
+            display: none; /* Escondido por padrão */
+            flex-direction: column;
+            gap: 15px;
+            animation: fadeIn 0.4s ease;
+        }
+        
+        .extra-info-container.visible {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        
+        <div class="diagram-section">
+            
+            <div class="layer-band band-ti">
+                <span>NÍVEL 3: GESTÃO & TI (Nuvem / Servidores)</span>
+                <span class="layer-badge">OSI: Camada 7 (Aplicação)</span>
+            </div>
+            <div class="layer-band band-control">
+                <span>NÍVEL 1/2: CONTROLE & SUPERVISÃO (Topologia em Anel)</span>
+                <span class="layer-badge">OSI: Camada 3/4 (Rede/Transporte) + L7 (CIP)</span>
+            </div>
+            <div class="layer-band band-field">
+                <span>NÍVEL 0: CHÃO DE FÁBRICA (I/O, Motores, Robótica)</span>
+                <span class="layer-badge">OSI: Camada 1/2 (Física/Enlace - Ethernet IEEE 802.3)</span>
+            </div>
+
+            <svg class="cables-svg">
+                <path d="M 200 100 L 400 280 M 600 100 L 400 280 M 400 280 L 200 420 L 600 420 Z" class="cable-static" />
+                
+                <path d="M 200 100 L 400 280" class="cable-tcp" />
+                <path d="M 600 100 L 400 280" class="cable-tcp" />
+
+                <path d="M 400 280 L 200 420 L 600 420 Z" class="cable-dlr" />
+
+                <path d="M 400 280 L 200 420" class="cable-udp" />
+                <path d="M 400 280 L 600 420" class="cable-udp" />
+
+                <path d="M 200 420 L 120 620" class="cable-udp" />
+                <path d="M 200 420 L 280 620" class="cable-udp" />
+                
+                <path d="M 600 420 L 520 620" class="cable-udp" />
+                <path d="M 600 420 L 680 620" class="cable-udp" />
+                <path d="M 600 420 L 680 620" class="cable-tcp" style="stroke-dasharray: 4 30;" /> </svg>
+
+            <div class="node" style="left: 200px; top: 100px;" onmouseenter="showData('erp')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="20" y="10" width="60" height="80" rx="5" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+                    <rect x="25" y="20" width="50" height="15" fill="#334155"/>
+                    <circle cx="35" cy="27" r="3" fill="#10b981"/> <circle cx="45" cy="27" r="3" fill="#3b82f6"/>
+                    <rect x="25" y="40" width="50" height="15" fill="#334155"/>
+                    <circle cx="35" cy="47" r="3" fill="#10b981"/> <circle cx="45" cy="47" r="3" fill="#3b82f6"/>
+                    <rect x="25" y="60" width="50" height="15" fill="#334155"/>
+                    <circle cx="35" cy="67" r="3" fill="#10b981"/> <circle cx="45" cy="67" r="3" fill="#ef4444"/>
+                </svg>
+                <div class="node-label">Servidor ERP</div>
+            </div>
+
+            <div class="node" style="left: 600px; top: 100px;" onmouseenter="showData('scada')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="15" y="20" width="70" height="50" rx="4" fill="#0f172a" stroke="#3b82f6" stroke-width="2"/>
+                    <path d="M 40 70 L 60 70 L 55 85 L 45 85 Z" fill="#334155"/>
+                    <rect x="30" y="85" width="40" height="5" fill="#3b82f6"/>
+                    <polyline points="25,60 40,40 55,50 75,25" fill="none" stroke="#10b981" stroke-width="2"/>
+                </svg>
+                <div class="node-label">SCADA / HMI</div>
+            </div>
+
+            <div class="node" style="left: 400px; top: 280px;" onmouseenter="showData('master')" onmouseleave="hideData()">
+                <svg class="svg-icon-large" viewBox="0 0 100 100">
+                    <rect x="10" y="25" width="80" height="50" fill="#1e293b" stroke="#f8fafc" stroke-width="2"/>
+                    <rect x="15" y="30" width="20" height="40" fill="#475569"/> <circle cx="25" cy="40" r="4" fill="#10b981"/>
+                    <rect x="40" y="30" width="12" height="40" fill="#334155"/> <rect x="55" y="30" width="12" height="40" fill="#334155"/>
+                    <rect x="70" y="30" width="15" height="40" fill="#0f172a" stroke="#3b82f6" stroke-width="1"/> <circle cx="77" cy="40" r="3" fill="#f59e0b"/>
+                </svg>
+                <div class="node-label">CLP Mestre (Scanner)</div>
+            </div>
+
+            <div class="node" style="left: 200px; top: 420px;" onmouseenter="showData('slave1')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="20" y="30" width="60" height="40" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+                    <rect x="25" y="35" width="15" height="30" fill="#475569"/>
+                    <rect x="45" y="35" width="30" height="30" fill="#334155"/>
+                    <rect x="50" y="50" width="8" height="8" fill="#000"/> <circle cx="54" cy="62" r="2" fill="#10b981"/>
+                    <rect x="62" y="50" width="8" height="8" fill="#000"/> <circle cx="66" cy="62" r="2" fill="#f59e0b"/>
+                </svg>
+                <div class="node-label">I/O Remoto (Nó DLR)</div>
+            </div>
+
+            <div class="node" style="left: 600px; top: 420px;" onmouseenter="showData('slave2')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="20" y="30" width="60" height="40" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+                    <rect x="25" y="35" width="15" height="30" fill="#475569"/>
+                    <rect x="45" y="35" width="30" height="30" fill="#334155"/>
+                    <rect x="50" y="50" width="8" height="8" fill="#000"/>
+                    <rect x="62" y="50" width="8" height="8" fill="#000"/>
+                </svg>
+                <div class="node-label">I/O Remoto (Nó DLR)</div>
+            </div>
+
+            <div class="node" style="left: 120px; top: 620px;" onmouseenter="showData('vfd')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="25" y="10" width="50" height="80" rx="3" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+                    <rect x="35" y="20" width="30" height="20" fill="#000"/> <text x="40" y="35" fill="#10b981" font-size="12" font-family="monospace">60.0</text>
+                    <circle cx="40" cy="55" r="5" fill="#ef4444"/>
+                    <circle cx="60" cy="55" r="5" fill="#10b981"/>
+                    <path d="M 50 75 L 50 95" stroke="#94a3b8" stroke-width="3"/> </svg>
+                <div class="node-label">Inversor de Frequência</div>
+            </div>
+
+            <div class="node" style="left: 280px; top: 620px;" onmouseenter="showData('sensor')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="35" y="20" width="30" height="50" rx="15" fill="#334155" stroke="#10b981" stroke-width="2"/>
+                    <circle cx="50" cy="45" r="8" fill="#0f172a"/>
+                    <rect x="45" y="70" width="10" height="20" fill="#94a3b8"/> <path d="M 30 75 L 70 75" stroke="#1e293b" stroke-width="2"/>
+                </svg>
+                <div class="node-label">Sensor Inteligente (IP67)</div>
+            </div>
+
+            <div class="node" style="left: 520px; top: 620px;" onmouseenter="showData('cnc')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <rect x="15" y="30" width="70" height="50" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+                    <rect x="25" y="40" width="40" height="30" fill="#0f172a"/> <rect x="70" y="30" width="15" height="50" fill="#334155"/> <circle cx="77" cy="45" r="4" fill="#ef4444"/> <path d="M 45 40 L 45 55 L 42 60 L 48 60 Z" fill="#94a3b8"/>
+                </svg>
+                <div class="node-label">Centro CNC</div>
+            </div>
+
+            <div class="node" style="left: 680px; top: 620px;" onmouseenter="showData('robot')" onmouseleave="hideData()">
+                <svg class="svg-icon" viewBox="0 0 100 100">
+                    <path d="M 30 80 L 70 80 L 65 70 L 35 70 Z" fill="#334155"/> <circle cx="50" cy="65" r="10" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+                    <path d="M 50 65 L 70 35" stroke="#1e293b" stroke-width="8" stroke-linecap="round"/> <circle cx="70" cy="35" r="8" fill="#334155"/>
+                    <path d="M 70 35 L 40 20" stroke="#1e293b" stroke-width="6" stroke-linecap="round"/> <path d="M 40 20 L 30 25 L 35 15 Z" fill="#f59e0b"/> </svg>
+                <div class="node-label">Braço Robótico</div>
+            </div>
+
+        </div>
+
+        <div class="info-section">
+            
+            <div class="info-card" id="dynamic-panel">
+                <h3 style="border-bottom:none; margin:0;"><span style="color:var(--text-muted)"><i class="fa-solid fa-arrow-pointer"></i> Interaja com o diagrama</span></h3>
+                <p>Passe o mouse sobre os itens à esquerda para ver os detalhes técnicos, a camada OSI aplicável e os cabos utilizados por cada equipamento.</p>
+            </div>
+
+            <button class="toggle-btn" id="toggleInfoBtn" onclick="toggleConcepts()">
+                <i class="fa-solid fa-chevron-down"></i> Mostrar Conceitos Gerais
+            </button>
+
+            <div class="extra-info-container" id="conceptsContainer">
+                <div class="info-card">
+                    <h3>Tráfego Lógico (Protocolo CIP)</h3>
+                    <p><span class="badge bg-tcp">Mensagem Explícita</span><br>
+                    Usa <b>TCP/IP</b>. Comunicação assíncrona (sob demanda). Ideal para enviar receitas de produção, ler diagnósticos ou configurar máquinas. (Lenta, mas garante entrega).</p>
+                    <p><span class="badge bg-udp">Mensagem Implícita</span><br>
+                    Usa <b>UDP/IP</b>. Comunicação cíclica (I/O Data). Usada no controle de motores e válvulas em tempo real (Ciclos &lt; 10ms). (Super rápida, foco na máquina não parar).</p>
+                </div>
+
+                <div class="info-card">
+                    <h3><span class="badge bg-dlr">Topologia DLR</span> (Device Level Ring)</h3>
+                    <p>Diferente da estrela padrão da TI, o chão de fábrica usa anéis. Se um cabo romper no meio da produção, o protocolo DLR inverte o sentido dos dados em <b>menos de 3 milissegundos</b>. A máquina nem percebe a falha física.</p>
+                </div>
+
+                <div class="info-card">
+                    <h3>Infraestrutura (Camada Física 1)</h3>
+                    <p><b>Escritório/Painel:</b> Cabos Cat5e/Cat6 STP (Shielded) com conectores RJ45 metálicos para evitar ruído eletromagnético.</p>
+                    <p><b>Chão de Fábrica Pesado:</b> Usa-se conectores rosqueados <b>M12 D-Coded ou X-Coded</b> com proteção IP67, mantendo o padrão Ethernet.</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const db = {
+            erp: {
+                title: "Servidor ERP / Banco de Dados",
+                osi: "Camada 7 (Aplicação)",
+                desc: "O ERP cruza dados de automação com finanças e logística. Coleta relatórios consolidados diretamente do CLP.",
+                protocol: "TCP/IP (Mensagens Explícitas)",
+                cabo: "Fibra Óptica / Cat6 Padrão"
+            },
+            scada: {
+                title: "Supervisório SCADA",
+                osi: "Camada 7 (Aplicação)",
+                desc: "Interface do operador. Faz 'polling' acíclico nos objetos CIP do CLP para atualizar gráficos de temperatura e alarmes na tela.",
+                protocol: "TCP/IP (Mensagens Explícitas)",
+                cabo: "RJ45 Cat6"
+            },
+            master: {
+                title: "CLP Mestre (Scanner E/IP)",
+                osi: "Camada 3, 4 e 7 (Roteamento e CIP)",
+                desc: "O maestro da rede. Mantém conexões UDP rigorosas com o chão de fábrica para controle lógico, enquanto empacota dados gerenciais via TCP para enviar à TI.",
+                protocol: "CIP Integrado (TCP e UDP simultâneos)",
+                cabo: "RJ45 Industrial Blindado"
+            },
+            slave1: {
+                title: "CLP Remoto (Nó DLR)",
+                osi: "Camada 2 (Switching) e 7 (CIP)",
+                desc: "Atua como switch gerenciável na máquina. Repassa pacotes do anel DLR em microssegundos e converte dados CIP em sinais elétricos brutos para equipamentos menores.",
+                protocol: "UDP (Implícito) + DLR Beacon",
+                cabo: "2x Conexões RJ45/M12"
+            },
+            slave2: {
+                title: "CLP Remoto (Nó DLR)",
+                osi: "Camada 2 e 7",
+                desc: "Gerencia a célula de manufatura avançada, sincronizando os comandos de alta precisão que descem para o robô e para o CNC.",
+                protocol: "UDP (Implícito) + DLR Beacon",
+                cabo: "2x Conexões RJ45/M12"
+            },
+            vfd: {
+                title: "Inversor de Frequência WEG",
+                osi: "Camada 1 a 7 (CIP Adapter)",
+                desc: "Recebe o 'Assembly Object' CIP via EtherNet/IP dizendo para girar a esteira a 60Hz. Processa a lógica de controle interno baseada no pacote recebido a cada 20ms.",
+                protocol: "UDP Predominante (I/O Control)",
+                cabo: "RJ45 Blindado no Painel"
+            },
+            sensor: {
+                title: "Módulo IO-Link / Sensor",
+                osi: "Camada 1 e 2 (Hardware Duro)",
+                desc: "Digitaliza variáveis analógicas (como pressão de óleo) e injeta diretamente no barramento Ethernet, sem necessidade de cartões de conversão intermediários complexos.",
+                protocol: "UDP (Implícito Cíclico)",
+                cabo: "Conector M12 Rosqueado (IP67)"
+            },
+            cnc: {
+                title: "Centro de Usinagem CNC",
+                osi: "Camadas 1 a 7",
+                desc: "Baixa gigabytes de receitas de usinagem (G-Code) via TCP da engenharia, mas utiliza o UDP para monitorar a barreira de segurança física do operador.",
+                protocol: "TCP (Upload) e UDP (Segurança)",
+                cabo: "M12 X-Coded (Gigabit Ethernet)"
+            },
+            robot: {
+                title: "Braço Robótico Articulado",
+                osi: "Camadas 1 a 7",
+                desc: "Equipamento de missão crítica. Interpola eixos baseado no pacote de rede. Se o pacote UDP atrasar (Jitter), a solda ou pintura será executada fora de posição.",
+                protocol: "UDP de Baixa Latência",
+                cabo: "Cabo Ethernet Robótico (Alta Torção)"
+            }
+        };
+
+        const panel = document.getElementById('dynamic-panel');
+
+        function showData(id) {
+            const data = db[id];
+            panel.innerHTML = `
+                <h2 id="dp-title">${data.title}</h2>
+                <span id="dp-osi">Modelo OSI: ${data.osi}</span>
+                <p style="color: #cbd5e1; font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px;">${data.desc}</p>
+                
+                <div class="dp-row">
+                    <div class="dp-label">Fluxo de Dados Principal</div>
+                    <div class="dp-value"><span class="badge ${data.protocol.includes('TCP') ? (data.protocol.includes('UDP') ? 'bg-dlr' : 'bg-tcp') : 'bg-udp'}">${data.protocol}</span></div>
+                </div>
+                <div class="dp-row">
+                    <div class="dp-label">Conexão Física Comum</div>
+                    <div class="dp-value"><b>${data.cabo}</b></div>
+                </div>
+            `;
+        }
+
+        function hideData() {
+            panel.innerHTML = `
+                <h3 style="border-bottom:none; margin:0;"><span style="color:var(--text-muted)"><i class="fa-solid fa-arrow-pointer"></i> Interaja com o diagrama</span></h3>
+                <p>O EtherNet/IP permite que todos os níveis da fábrica compartilhem a mesma rede física. Passe o mouse sobre os itens à esquerda para ver os detalhes técnicos, a camada OSI aplicável e os cabos utilizados.</p>
+            `;
+        }
+
+        function toggleConcepts() {
+            const container = document.getElementById('conceptsContainer');
+            const btn = document.getElementById('toggleInfoBtn');
+            
+            if (container.classList.contains('visible')) {
+                container.classList.remove('visible');
+                btn.innerHTML = '<i class="fa-solid fa-chevron-down"></i> Mostrar Conceitos Gerais';
+            } else {
+                container.classList.add('visible');
+                btn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> Ocultar Conceitos Gerais';
+            }
+        }
+    </script>
+</body>
+</html>
